@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voxel Raft 3D</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #87CEEB;
+        }
+        canvas {
+            display: block;
+        }
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        /* Crosshair */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 8px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(0, 0, 0, 0.6);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: transform 0.1s, background-color 0.1s;
+        }
+        /* Charge Bar */
+        #charge-container {
+            position: absolute;
+            top: 54%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100px;
+            height: 8px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            border-radius: 4px;
+            display: none;
+            overflow: hidden;
+        }
+        #charge-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #ffeb3b, #f44336);
+        }
+        /* HUD: Inventory & Status */
+        #hud-left {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(4px);
+            color: #fff;
+            padding: 16px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            min-width: 210px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        #hud-left h3 {
+            margin: 0 0 12px 0;
+            font-size: 15px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #94a3b8;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 6px;
+        }
+        .res-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .res-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .swatch {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            display: inline-block;
+            border: 1px solid rgba(0,0,0,0.4);
+        }
+        /* HUD: Build & Controls */
+        #hud-bottom {
+            position: absolute;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(4px);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .mode-badge {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .mode-hook {
+            background: #0284c7;
+            color: #fff;
+        }
+        .mode-build {
+            background: #16a34a;
+            color: #fff;
+        }
+        /* Notifications */
+        #notifications {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-end;
+        }
+        .toast {
+            background: rgba(15, 23, 42, 0.85);
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 6px;
+            border-left: 4px solid #38bdf8;
+            font-size: 14px;
+            font-weight: 500;
+            animation: fadeInOut 2.2s forwards;
+        }
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateX(20px); }
+            15% { opacity: 1; transform: translateX(0); }
+            85% { opacity: 1; transform: translateX(0); }
+            100% { opacity: 0; transform: translateY(-10px); }
+        }
+        /* Start / Pause Overlay */
+        #blocker {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(5px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            z-index: 10;
+        }
+        #instructions {
+            background: #1e293b;
+            color: #f8fafc;
+            padding: 36px 48px;
+            border-radius: 16px;
+            text-align: center;
+            max-width: 480px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            cursor: pointer;
+            transition: transform 0.15s ease;
+        }
+        #instructions:hover {
+            transform: scale(1.02);
+        }
+        #instructions h1 {
+            margin: 0 0 12px 0;
+            font-size: 32px;
+            color: #38bdf8;
+            letter-spacing: 1px;
+        }
+        #instructions p {
+            color: #cbd5e1;
+            font-size: 15px;
+            line-height: 1.6;
+            margin: 8px 0;
+        }
+        .key {
+            display: inline-block;
+            background: #334155;
+            border: 1px solid #475569;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #fff;
+            font-weight: bold;
+        }
+        .cta-btn {
+            margin-top: 22px;
+            display: inline-block;
+            background: #0284c7;
+            color: white;
+            font-weight: bold;
+            padding: 12px 28px;
+            border-radius: 8px;
+            font-size: 16px;
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4);
+        }
+    </style>
+    <!-- Three.js r128 via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <!-- HUD & UI -->
+    <div id="ui-layer">
+        <div id="crosshair"></div>
+        <div id="charge-container"><div id="charge-bar"></div></div>
+
+        <div id="hud-left">
+            <h3>Inventory</h3>
+            <div class="res-row">
+                <span class="res-label"><span class="swatch" style="background:#8B5A2B;"></span>Wood</span>
+                <span id="count-wood">2</span>
+            </div>
+            <div class="res-row">
+                <span class="res-label"><span class="swatch" style="background:#E2E8F0;"></span>Plastic</span>
+                <span id="count-plastic">2</span>
+            </div>
+            <div class="res-row">
+                <span class="res-label"><span class="swatch" style="background:#22C55E;"></span>Leaf</span>
+                <span id="count-leaf">0</span>
+            </div>
+            <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); font-size:12px; color:#94a3b8;">
+                Raft Size: <strong id="raft-size" style="color:#fff;">1</strong> plank(s)
+            </div>
+        </div>
+
+        <div id="hud-bottom">
+            <div id="mode-indicator" class="mode-badge mode-hook">Mode: Hook</div>
+            <div id="mode-hint" style="font-size: 14px; color: #cbd5e1;">
+                Hold <b>Left-Click</b> to Cast Hook &nbsp;|&nbsp; Press <b>[B]</b> or <b>[E]</b> to Build (Cost: 2 Wood, 2 Plastic)
+            </div>
+        </div>
+
+        <div id="notifications"></div>
+    </div>
+
+    <!-- Pointer Lock Splash Screen -->
+    <div id="blocker">
+        <div id="instructions">
+            <h1>VOXEL RAFT</h1>
+            <p>Survive on a tiny floating plank in the endless ocean. Harvest drifting debris with your scrap hook and expand your raft!</p>
+            <div style="text-align: left; background: #0f172a; padding: 14px 18px; border-radius: 8px; margin: 16px 0;">
+                <p><span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> Move &nbsp;&bull;&nbsp; <span class="key">SPACE</span> Jump</p>
+                <p><span class="key">Left Click (Hold)</span> Charge & Throw Hook</p>
+                <p><span class="key">Left Click (In Air)</span> Reel Hook Back Early</p>
+                <p><span class="key">B</span> or <span class="key">E</span> Toggle Raft Build Mode</p>
+            </div>
+            <div class="cta-btn">CLICK TO PLAY</div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. SCENE, CAMERA & RENDERER SETUP
+        // ==========================================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.FogExp2(0x87CEEB, 0.012);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 250);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // ==========================================
+        // 2. LIGHTING
+        // ==========================================
+        const ambientLight = new THREE.AmbientLight(0xdbeafe, 0.65);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xfffbeb, 0.9);
+        sunLight.position.set(35, 60, 25);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 150;
+        const d = 35;
+        sunLight.shadow.camera.left = -d;
+        sunLight.shadow.camera.right = d;
+        sunLight.shadow.camera.top = d;
+        sunLight.shadow.camera.bottom = -d;
+        scene.add(sunLight);
+
+        // ==========================================
+        // 3. MOVING OCEAN & GRID
+        // ==========================================
+        const oceanGeo = new THREE.PlaneGeometry(300, 300, 60, 60);
+        oceanGeo.rotateX(-Math.PI / 2);
+        const oceanMat = new THREE.MeshLambertMaterial({
+            color: 0x0284c7,
+            transparent: true,
+            opacity: 0.92
+        });
+        const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+        oceanMesh.receiveShadow = true;
+        scene.add(oceanMesh);
+
+        // Moving Grid Helper for clear visual drift feedback
+        const oceanGrid = new THREE.GridHelper(300, 150, 0x38bdf8, 0x0369a1);
+        oceanGrid.position.y = 0.01;
+        oceanGrid.material.transparent = true;
+        oceanGrid.material.opacity = 0.35;
+        scene.add(oceanGrid);
+
+        // ==========================================
+        // 4. GAME STATE & INVENTORY
+        // ==========================================
+        const BLOCK_SIZE = 2.0;
+        const BLOCK_HEIGHT = 0.4;
+        const PLAYER_HEIGHT = 1.7;
+
+        const inventory = {
+            wood: 2,    // Start with enough resources to place 1 plank immediately
+            plastic: 2,
+            leaf: 0
+        };
+
+        const raftBlocks = new Map(); // Key: "gx,gz" -> Mesh
+        const raftGroup = new THREE.Group();
+        scene.add(raftGroup);
+
+        let isBuildMode = false;
+        let currentBuildCoords = null;
+
+        // UI Elements
+        const uiWood = document.getElementById('count-wood');
+        const uiPlastic = document.getElementById('count-plastic');
+        const uiLeaf = document.getElementById('count-leaf');
+        const uiRaftSize = document.getElementById('raft-size');
+        const uiModeIndicator = document.getElementById('mode-indicator');
+        const uiModeHint = document.getElementById('mode-hint');
+        const chargeContainer = document.getElementById('charge-container');
+        const chargeBar = document.getElementById('charge-bar');
+        const notificationsEl = document.getElementById('notifications');
+
+        function updateUI() {
+            uiWood.textContent = inventory.wood;
+            uiPlastic.textContent = inventory.plastic;
+            uiLeaf.textContent = inventory.leaf;
+            uiRaftSize.textContent = raftBlocks.size;
+
+            if (isBuildMode) {
+                uiModeIndicator.textContent = 'Mode: Build';
+                uiModeIndicator.className = 'mode-badge mode-build';
+                const canAfford = inventory.wood >= 2 && inventory.plastic >= 2;
+                uiModeHint.innerHTML = canAfford
+                    ? 'Aim at raft edge & <b>Left-Click</b> to place Plank (2 Wood, 2 Plastic) &nbsp;|&nbsp; Press <b>[B]</b> to Exit'
+                    : '<span style="color:#f87171;">Not enough resources! Need 2 Wood & 2 Plastic</span> &nbsp;|&nbsp; Press <b>[B]</b> to Exit';
+            } else {
+                uiModeIndicator.textContent = 'Mode: Hook';
+                uiModeIndicator.className = 'mode-badge mode-hook';
+                uiModeHint.innerHTML = 'Hold <b>Left-Click</b> to Cast Hook &nbsp;|&nbsp; Press <b>[B]</b> or <b>[E]</b> to Build (Cost: 2 Wood, 2 Plastic)';
+            }
+        }
+
+        function showToast(text, color = '#38bdf8') {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.borderLeftColor = color;
+            toast.textContent = text;
+            notificationsEl.appendChild(toast);
+            setTimeout(() => toast.remove(), 2200);
+        }
+
+        // ==========================================
+        // 5. RAFT BUILDING SYSTEM
+        // ==========================================
+        const plankGeometry = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_HEIGHT, BLOCK_SIZE);
+        const plankMaterial = new THREE.MeshLambertMaterial({ color: 0x9c6631 });
+        const plankEdgeGeo = new THREE.EdgesGeometry(plankGeometry);
+        const plankEdgeMat = new THREE.LineBasicMaterial({ color: 0x432818 });
+
+        function addRaftBlock(gx, gz) {
+            const key = `${gx},${gz}`;
+            if (raftBlocks.has(key)) return false;
+
+            const mesh = new THREE.Mesh(plankGeometry, plankMaterial);
+            mesh.position.set(gx * BLOCK_SIZE, 0, gz * BLOCK_SIZE);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            // Voxel outline for crisp blocky look
+            const wireframe = new THREE.LineSegments(plankEdgeGeo, plankEdgeMat);
+            mesh.add(wireframe);
+
+            // Inner wood plank seam detail
+            const seamGeo = new THREE.BoxGeometry(BLOCK_SIZE * 0.92, BLOCK_HEIGHT + 0.02, 0.05);
+            const seamMat = new THREE.MeshBasicMaterial({ color: 0x5c3a1e });
+            const seam1 = new THREE.Mesh(seamGeo, seamMat);
+            seam1.position.z = -0.33 * BLOCK_SIZE;
+            const seam2 = seam1.clone();
+            seam2.position.z = 0.33 * BLOCK_SIZE;
+            mesh.add(seam1, seam2);
+
+            raftGroup.add(mesh);
+            raftBlocks.set(key, mesh);
+            updateUI();
+            return true;
+        }
+
+        // Initialize starting block at (0,0)
+        addRaftBlock(0, 0);
+
+        // Ghost Preview Mesh for Build Mode
+        const ghostMat = new THREE.MeshBasicMaterial({
+            color: 0x4ade80,
+            transparent: true,
+            opacity: 0.5,
+            wireframe: false
+        });
+        const ghostMesh = new THREE.Mesh(plankGeometry, ghostMat);
+        const ghostWire = new THREE.LineSegments(plankEdgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff }));
+        ghostMesh.add(ghostWire);
+        ghostMesh.visible = false;
+        scene.add(ghostMesh);
+
+        // Invisible mathematical plane at y=0 for raycasting build positions
+        const buildPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const raycaster = new THREE.Raycaster();
+
+        function isAdjacentToRaft(gx, gz) {
+            if (raftBlocks.has(`${gx},${gz}`)) return false;
+            const neighbors = [
+                `${gx + 1},${gz}`,
+                `${gx - 1},${gz}`,
+                `${gx},${gz + 1}`,
+                `${gx},${gz - 1}`
+            ];
+            return neighbors.some(nKey => raftBlocks.has(nKey));
+        }
+
+        function updateBuildPreview() {
+            if (!isBuildMode) {
+                ghostMesh.visible = false;
+                currentBuildCoords = null;
+                return;
+            }
+
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const intersectPt = new THREE.Vector3();
+            const hit = raycaster.ray.intersectPlane(buildPlane, intersectPt);
+
+            if (hit && intersectPt.distanceTo(player.pos) < 12) {
+                const gx = Math.round(intersectPt.x / BLOCK_SIZE);
+                const gz = Math.round(intersectPt.z / BLOCK_SIZE);
+
+                if (isAdjacentToRaft(gx, gz)) {
+                    ghostMesh.position.set(gx * BLOCK_SIZE, 0, gz * BLOCK_SIZE);
+                    ghostMesh.visible = true;
+                    currentBuildCoords = { gx, gz };
+
+                    const canAfford = inventory.wood >= 2 && inventory.plastic >= 2;
+                    ghostMat.color.setHex(canAfford ? 0x4ade80 : 0xf87171);
+                    return;
+                }
+            }
+
+            ghostMesh.visible = false;
+            currentBuildCoords = null;
+        }
+
+        // ==========================================
+        // 6. PLAYER & CONTROLS SETUP
+        // ==========================================
+        const player = {
+            pos: new THREE.Vector3(0, BLOCK_HEIGHT / 2 + PLAYER_HEIGHT, 0),
+            vel: new THREE.Vector3(0, 0, 0),
+            yaw: 0,
+            pitch: 0,
+            speed: 6.5,
+            onGround: true
+        };
+
+        const keys = { KeyW: false, KeyA: false, KeyS: false, KeyD: false, Space: false };
+        let isPointerLocked = false;
+
+        const blocker = document.getElementById('blocker');
+        const instructions = document.getElementById('instructions');
+
+        instructions.addEventListener('click', () => {
+            document.body.requestPointerLock();
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            isPointerLocked = (document.pointerLockElement === document.body);
+            blocker.style.display = isPointerLocked ? 'none' : 'flex';
+            if (!isPointerLocked) {
+                // Cancel hook charge if paused
+                hook.charging = false;
+                chargeContainer.style.display = 'none';
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isPointerLocked) return;
+            const sensitivity = 0.0022;
+            player.yaw -= e.movementX * sensitivity;
+            player.pitch -= e.movementY * sensitivity;
+            const maxPitch = Math.PI / 2 - 0.05;
+            player.pitch = Math.max(-maxPitch, Math.min(maxPitch, player.pitch));
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.code)) keys[e.code] = true;
+            if ((e.code === 'KeyB' || e.code === 'KeyE') && isPointerLocked) {
+                isBuildMode = !isBuildMode;
+                if (isBuildMode && hook.charging) {
+                    hook.charging = false;
+                    chargeContainer.style.display = 'none';
+                }
+                updateUI();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.code)) keys[e.code] = false;
+        });
+
+        function checkOnRaft(x, z) {
+            // Add slight generous margin so player doesn't slip off edges easily
+            const gx = Math.round(x / BLOCK_SIZE);
+            const gz = Math.round(z / BLOCK_SIZE);
+            if (raftBlocks.has(`${gx},${gz}`)) return true;
+
+            // Check with small radius buffer
+            const margin = 0.35;
+            const checks = [
+                [x + margin, z], [x - margin, z],
+                [x, z + margin], [x, z - margin]
+            ];
+            return checks.some(([cx, cz]) => {
+                const cgx = Math.round(cx / BLOCK_SIZE);
+                const cgz = Math.round(cz / BLOCK_SIZE);
+                return raftBlocks.has(`${cgx},${cgz}`);
+            });
+        }
+
+        // ==========================================
+        // 7. FISHING HOOK & ROPE MECHANIC
+        // ==========================================
+        // Hand-held Rod/Tool in First-Person View
+        const handToolGroup = new THREE.Group();
+        const rodGeo = new THREE.BoxGeometry(0.08, 0.08, 0.7);
+        const rodMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21 });
+        const rodMesh = new THREE.Mesh(rodGeo, rodMat);
+        rodMesh.position.set(0.35, -0.28, -0.45);
+        rodMesh.rotation.x = 0.25;
+        handToolGroup.add(rodMesh);
+        camera.add(handToolGroup);
+        scene.add(camera);
+
+        // 3D Voxel Hook Projectile
+        const hookMesh = new THREE.Group();
+        const hookBody = new THREE.Mesh(
+            new THREE.BoxGeometry(0.28, 0.28, 0.45),
+            new THREE.MeshLambertMaterial({ color: 0x94a3b8 })
+        );
+        const hookProng = new THREE.Mesh(
+            new THREE.BoxGeometry(0.45, 0.45, 0.12),
+            new THREE.MeshLambertMaterial({ color: 0x475569 })
+        );
+        hookProng.position.z = -0.15;
+        hookMesh.add(hookBody, hookProng);
+        scene.add(hookMesh);
+
+        // Dynamic Rope Line connecting Player Rod to Hook
+        const ropeMaterial = new THREE.LineBasicMaterial({ color: 0xf8fafc, linewidth: 2 });
+        const ropeGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        const ropeLine = new THREE.Line(ropeGeometry, ropeMaterial);
+        scene.add(ropeLine);
+
+        const hook = {
+            state: 'IDLE', // 'IDLE', 'THROWN', 'FLOATING', 'RETRACTING'
+            pos: new THREE.Vector3(),
+            vel: new THREE.Vector3(),
+            charging: false,
+            chargePower: 0,
+            caughtItems: []
+        };
+
+        document.addEventListener('mousedown', (e) => {
+            if (!isPointerLocked || e.button !== 0) return;
+
+            if (isBuildMode) {
+                if (currentBuildCoords) {
+                    if (inventory.wood >= 2 && inventory.plastic >= 2) {
+                        const built = addRaftBlock(currentBuildCoords.gx, currentBuildCoords.gz);
+                        if (built) {
+                            inventory.wood -= 2;
+                            inventory.plastic -= 2;
+                            updateUI();
+                            showToast('Built Raft Plank!', '#4ade80');
+                        }
+                    } else {
+                        showToast('Need 2 Wood & 2 Plastic!', '#f87171');
+                    }
+                }
+                return;
+            }
+
+            // Hook Mode Interactions
+            if (hook.state === 'IDLE') {
+                hook.charging = true;
+                hook.chargePower = 0;
+                chargeContainer.style.display = 'block';
+                chargeBar.style.width = '0%';
+            } else if (hook.state === 'THROWN' || hook.state === 'FLOATING') {
+                hook.state = 'RETRACTING';
+            }
+        });
+
+        document.addEventListener('mouseup', (e) => {
+            if (!isPointerLocked || e.button !== 0) return;
+
+            if (hook.charging && hook.state === 'IDLE') {
+                hook.charging = false;
+                chargeContainer.style.display = 'none';
+
+                // Launch Hook along camera look vector
+                hook.state = 'THROWN';
+                const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+                const speed = 14 + hook.chargePower * 22;
+
+                // Start at rod tip position
+                const startPos = new THREE.Vector3(0.35, -0.2, -0.8).applyMatrix4(camera.matrixWorld);
+                hook.pos.copy(startPos);
+                hook.vel.copy(lookDir).multiplyScalar(speed);
+                hook.vel.y += 3.5; // Upward arc boost
+            }
+        });
+
+        // ==========================================
+        // 8. FLOATING DEBRIS SPAWNER & TYPES
+        // ==========================================
+        const DEBRIS_TYPES = {
+            wood: {
+                name: 'Wood Plank',
+                color: 0x8B5A2B,
+                edgeColor: 0x3d2510,
+                geo: new THREE.BoxGeometry(1.3, 0.22, 0.45),
+                toastColor: '#d97706'
+            },
+            plastic: {
+                name: 'Plastic',
+                color: 0xF1F5F9,
+                edgeColor: 0x94A3B8,
+                geo: new THREE.BoxGeometry(0.65, 0.35, 0.65),
+                toastColor: '#e2e8f0'
+            },
+            leaf: {
+                name: 'Palm Leaf',
+                color: 0x22C55E,
+                edgeColor: 0x15803D,
+                geo: new THREE.BoxGeometry(0.95, 0.1, 0.95),
+                toastColor: '#22c55e'
+            }
+        };
+
+        const debrisList = [];
+        const OCEAN_DRIFT_SPEED = 3.2; // Speed items float along +Z
+
+        function createDebris(customZ = null) {
+            const rand = Math.random();
+            let typeKey = 'wood';
+            if (rand > 0.65) typeKey = 'leaf';
+            else if (rand > 0.32) typeKey = 'plastic';
+
+            const cfg = DEBRIS_TYPES[typeKey];
+            const mat = new THREE.MeshLambertMaterial({ color: cfg.color });
+            const mesh = new THREE.Mesh(cfg.geo, mat);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            const edges = new THREE.LineSegments(
+                new THREE.EdgesGeometry(cfg.geo),
+                new THREE.LineBasicMaterial({ color: cfg.edgeColor })
+            );
+            mesh.add(edges);
+
+            // Spawn across a wide channel upstream (-Z) so it drifts toward & past the raft
+            const x = (Math.random() - 0.5) * 48;
+            const z = customZ !== null ? customZ : -65 - Math.random() * 25;
+            mesh.position.set(x, 0.05, z);
+            mesh.rotation.y = Math.random() * Math.PI * 2;
+
+            scene.add(mesh);
+            debrisList.push({
+                mesh,
+                type: typeKey,
+                caught: false,
+                bobPhase: Math.random() * Math.PI * 2,
+                rotSpeed: (Math.random() - 0.5) * 0.8
+            });
+        }
+
+        // Pre-populate ocean with floating debris at game start
+        for (let i = 0; i < 32; i++) {
+            createDebris(-60 + Math.random() * 90);
+        }
+
+        // ==========================================
+        // 9. MAIN ANIMATION & PHYSICS LOOP
+        // ==========================================
+        const clock = new THREE.Clock();
+        let spawnTimer = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const dt = Math.min(clock.getDelta(), 0.1);
+            const elapsed = clock.getElapsedTime();
+
+            // 1. Update Moving Ocean Grid & Subtle Wave Bob
+            oceanGrid.position.z = (elapsed * OCEAN_DRIFT_SPEED) % 2;
+            oceanMesh.position.y = Math.sin(elapsed * 1.8) * 0.04 - 0.05;
+
+            // 2. Update Player Movement & Physics
+            if (isPointerLocked) {
+                camera.rotation.order = 'YXZ';
+                camera.rotation.y = player.yaw;
+                camera.rotation.x = player.pitch;
+
+                const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+                const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+
+                const moveDir = new THREE.Vector3();
+                if (keys.KeyW) moveDir.add(forward);
+                if (keys.KeyS) moveDir.sub(forward);
+                if (keys.KeyD) moveDir.add(right);
+                if (keys.KeyA) moveDir.sub(right);
+                if (moveDir.lengthSq() > 0) moveDir.normalize();
+
+                const onRaft = checkOnRaft(player.pos.x, player.pos.z);
+                const currentSpeed = onRaft ? player.speed : player.speed * 0.55; // Swim slower in water
+
+                player.pos.x += moveDir.x * currentSpeed * dt;
+                player.pos.z += moveDir.z * currentSpeed * dt;
+
+                // Jump / Swim Up
+                if (keys.Space && player.onGround) {
+                    player.vel.y = 6.5;
+                    player.onGround = false;
+                }
+            }
+
+            // Gravity & Floor Collision (Raft vs Water)
+            player.vel.y -= 18.0 * dt; // Gravity
+            player.pos.y += player.vel.y * dt;
+
+            const standingOnRaft = checkOnRaft(player.pos.x, player.pos.z);
+            const targetFloorY = standingOnRaft
+                ? (BLOCK_HEIGHT / 2 + PLAYER_HEIGHT)
+                : (PLAYER_HEIGHT * 0.55 + Math.sin(elapsed * 3) * 0.06); // Treading water height
+
+            if (player.pos.y <= targetFloorY) {
+                player.pos.y = targetFloorY;
+                player.vel.y = 0;
+                player.onGround = true;
+            }
+
+            camera.position.copy(player.pos);
+
+            // 3. Update Build Mode Ghost Preview
+            updateBuildPreview();
+
+            // 4. Update Hook Charge, Trajectory, Collision & Retraction
+            if (hook.charging) {
+                hook.chargePower = Math.min(1.0, hook.chargePower + dt * 1.15);
+                chargeBar.style.width = `${Math.round(hook.chargePower * 100)}%`;
+                rodMesh.rotation.x = 0.25 + hook.chargePower * 0.5;
+            } else {
+                rodMesh.rotation.x = THREE.MathUtils.lerp(rodMesh.rotation.x, 0.25, dt * 10);
+            }
+
+            const rodTipWorld = new THREE.Vector3(0.35, -0.22, -0.78).applyMatrix4(camera.matrixWorld);
+
+            if (hook.state === 'IDLE') {
+                hookMesh.position.copy(rodTipWorld);
+                hookMesh.rotation.copy(camera.rotation);
+                ropeLine.visible = false;
+            } else {
+                ropeLine.visible = true;
+
+                if (hook.state === 'THROWN') {
+                    hook.vel.y -= 15.0 * dt; // Hook gravity
+                    hook.pos.addScaledVector(hook.vel, dt);
+                    hookMesh.lookAt(hook.pos.clone().add(hook.vel));
+
+                    // Hit water surface
+                    if (hook.pos.y <= 0.08) {
+                        hook.pos.y = 0.08;
+                        hook.state = 'FLOATING';
+                    }
+                    // Auto-retract if thrown too far
+                    if (hook.pos.distanceTo(player.pos) > 48) {
+                        hook.state = 'RETRACTING';
+                    }
+                } else if (hook.state === 'FLOATING') {
+                    // Float with ocean current & bob gently
+                    hook.pos.z += OCEAN_DRIFT_SPEED * dt;
+                    hook.pos.y = 0.05 + Math.sin(elapsed * 4) * 0.04;
+
+                    // Slowly sink/retract if very far
+                    if (hook.pos.distanceTo(player.pos) > 52) {
+                        hook.state = 'RETRACTING';
+                    }
+                } else if (hook.state === 'RETRACTING') {
+                    const pullTarget = new THREE.Vector3(player.pos.x, player.pos.y - 0.4, player.pos.z);
+                    const toPlayer = pullTarget.clone().sub(hook.pos);
+                    const dist = toPlayer.length();
+
+                    if (dist < 1.3) {
+                        // Collect all attached debris items!
+                        if (hook.caughtItems.length > 0) {
+                            hook.caughtItems.forEach(item => {
+                                inventory[item.type]++;
+                                const cfg = DEBRIS_TYPES[item.type];
+                                showToast(`+1 ${cfg.name}`, cfg.toastColor);
+                                scene.remove(item.mesh);
+                                const idx = debrisList.indexOf(item);
+                                if (idx !== -1) debrisList.splice(idx, 1);
+                            });
+                            hook.caughtItems = [];
+                            updateUI();
+                        }
+                        hook.state = 'IDLE';
+                    } else {
+                        toPlayer.normalize();
+                        const reelSpeed = 20.0;
+                        hook.pos.addScaledVector(toPlayer, reelSpeed * dt);
+                        // Keep hook skimming near water until close to player
+                        if (dist > 3.5) {
+                            hook.pos.y = THREE.MathUtils.lerp(hook.pos.y, 0.15, dt * 8);
+                        }
+                        hookMesh.lookAt(pullTarget);
+                    }
+                }
+
+                // Check Hook Collision with Floating Debris (can catch up to 3 items per cast)
+                if ((hook.state === 'FLOATING' || hook.state === 'RETRACTING' || hook.state === 'THROWN') && hook.caughtItems.length < 3) {
+                    for (let i = 0; i < debrisList.length; i++) {
+                        const dItem = debrisList[i];
+                        if (!dItem.caught && dItem.mesh.position.distanceTo(hook.pos) < 1.35) {
+                            dItem.caught = true;
+                            hook.caughtItems.push(dItem);
+                            // Automatically begin reeling in when snagging an item in water
+                            if (hook.state === 'FLOATING') {
+                                hook.state = 'RETRACTING';
+                            }
+                        }
+                    }
+                }
+
+                // Sync Hook Mesh & Attached Debris Positions
+                hookMesh.position.copy(hook.pos);
+                hook.caughtItems.forEach((item, index) => {
+                    item.mesh.position.copy(hook.pos);
+                    item.mesh.position.y -= 0.1 * index;
+                });
+
+                // Update Rope Geometry between Rod Tip and Hook
+                const ropePositions = ropeLine.geometry.attributes.position.array;
+                ropePositions[0] = rodTipWorld.x;
+                ropePositions[1] = rodTipWorld.y;
+                ropePositions[2] = rodTipWorld.z;
+                ropePositions[3] = hook.pos.x;
+                ropePositions[4] = hook.pos.y;
+                ropePositions[5] = hook.pos.z;
+                ropeLine.geometry.attributes.position.needsUpdate = true;
+            }
+
+            // 5. Update Floating Debris Movement & Spawning
+            spawnTimer += dt;
+            if (spawnTimer > 1.1 && debrisList.length < 40) {
+                spawnTimer = 0;
+                createDebris();
+            }
+
+            for (let i = debrisList.length - 1; i >= 0; i--) {
+                const item = debrisList[i];
+                if (item.caught) continue;
+
+                // Float toward +Z past the raft
+                item.mesh.position.z += OCEAN_DRIFT_SPEED * dt;
+                item.mesh.position.y = Math.sin(elapsed * 2.5 + item.bobPhase) * 0.06;
+                item.mesh.rotation.y += item.rotSpeed * dt;
+
+                // Despawn once it floats far past the raft
+                if (item.mesh.position.z > 55) {
+                    scene.remove(item.mesh);
+                    debrisList.splice(i, 1);
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Responsive Window Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start Game Loop
+        updateUI();
+        animate();
+    </script>
+</body>
+</html>
